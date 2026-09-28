@@ -1,0 +1,141 @@
+# Root Cause Analysis & Defect Investigation
+
+## Project
+
+Financial Data Onboarding & Data Quality Validation
+
+## Dataset
+
+86,288 financial complaint records
+
+---
+
+# 1. Data Quality Exception — Missing State Values
+
+## Rule ID
+
+DQ012
+
+## Field
+
+State
+
+## Issue
+
+During post-load data-quality validation, records containing the literal
+value `None` in the State field were identified.
+
+The value `None` was treated as a missing/unknown State representation
+rather than as a valid State value.
+
+## Impact
+
+183 records were identified as exceptions.
+
+Breakdown of affected records:
+
+| Product | Issue | Exception Count |
+|---|---|---:|
+| Debt collection | Written notification about debt | 148 |
+| Credit reporting or other personal consumer reports | Incorrect information on your report | 35 |
+| **Total** | | **183** |
+
+## Investigation
+
+The affected records were checked in both the raw source table and the
+target table.
+
+The investigation confirmed that the source data itself contained the
+literal text `None` for the State field.
+
+Therefore, the issue was not introduced during the SQL target load.
+
+## Root Cause
+
+The source dataset represents missing State information using the literal
+text `None` instead of a database NULL value.
+
+## Corrective Action
+
+The value `None` was treated as a missing-value representation during
+data-quality validation.
+
+The affected records were captured in the `dq_exceptions` table with:
+
+- Rule ID
+- Complaint ID
+- Field name
+- Issue description
+- Severity
+- Status
+- Identification date
+
+The State value was not replaced or inferred because an authoritative
+source was not available to determine the correct State.
+
+## Status
+
+Open — requires business/source-level investigation if the actual State
+value is required.
+
+---
+
+# 2. ETL Technical Defect — Date Transformation Failure
+
+## Issue
+
+During the initial SQL target-load attempt, the ETL transformation failed
+while converting the source date fields.
+
+## Error
+
+The source contained ISO 8601 timestamp values such as:
+
+`2025-01-01T02:57:50.000Z`
+
+The initial transformation attempted to interpret the values using the
+`MM/DD/YYYY` date format.
+
+This resulted in an invalid datetime conversion error.
+
+## Impact
+
+The initial target load did not complete successfully.
+
+No incorrect target data was accepted from the failed transformation.
+
+## Investigation
+
+The source date values were inspected directly in the raw table.
+
+The investigation showed that the date fields were stored as ISO 8601
+timestamps rather than `MM/DD/YYYY` formatted dates.
+
+## Root Cause
+
+The initial ETL transformation used an incorrect date-format assumption
+for the source data.
+
+Expected format:
+
+`MM/DD/YYYY`
+
+Actual source format:
+
+`YYYY-MM-DDTHH:MM:SS.sssZ`
+
+## Corrective Action
+
+The transformation was corrected to:
+
+1. Trim the source timestamp.
+2. Extract the first 10 characters containing `YYYY-MM-DD`.
+3. Convert the extracted value to a SQL DATE.
+
+The corrected transformation used:
+
+```sql
+STR_TO_DATE(
+    LEFT(TRIM(`Date received`), 10),
+    '%Y-%m-%d'
+)
